@@ -135,8 +135,8 @@ buffer:			.space	2
 header:			.space	54
 width:			.word	600
 height:			.word	50
-
-fpath:			.asciiz	"/home/mateusz/develop/projects/ecoar/mips/Code-128-Decoder/test.bmp"
+code_buffer:		.space	7
+special_code_buffer:	.space	8
 
 dsc_error_msg: 		.asciiz "File descriptor error!"
 bitmap_error_msg: 	.asciiz	"Loaded file is not a bitmap!"
@@ -146,8 +146,28 @@ size_error_msg:		.asciiz	"Wrong file size! Allowed size is 600x50."
 no_black_pixel:		.asciiz "There is no barcode in the bitmap!"
 placeholder:		.asciiz "Black pixel found!"
 
+fpath:			.asciiz	"/home/mateusz/develop/projects/ecoar/mips/Code-128-Decoder/test.bmp"
+
 .text
 open_file:
+	li	$t1, '\0'
+	sb	$t1, code_buffer+6
+	sb	$t1, special_code_buffer+7
+	li	$t1, '*'
+	sb	$t1, code_buffer
+	sb	$t1, special_code_buffer
+	sb	$t1, code_buffer+1
+	sb	$t1, special_code_buffer+1
+	sb	$t1, code_buffer+2
+	sb	$t1, special_code_buffer+2
+	sb	$t1, code_buffer+3
+	sb	$t1, special_code_buffer+3
+	sb	$t1, code_buffer+4
+	sb	$t1, special_code_buffer+4
+	sb	$t1, code_buffer+5
+	sb	$t1, special_code_buffer+5
+	sb	$t1, special_code_buffer+6
+		
 	li	$v0, 13
 	la	$a0, fpath
 	li	$a1, 0
@@ -213,11 +233,46 @@ iterate:
 	j	look_for_black
 
 black_found:
-	li	$v0, 4
-	la	$a0, placeholder
-	syscall
-	j	exit
+	li	$t1, 1
+	la	$t7, ($t9)
+	la	$s6, code_buffer
+	la	$s5, special_code_buffer
 
+find_width:
+	addiu	$t7, $t7, 3
+	lb	$t0, ($t7)
+	bnez	$t0, end_of_bar
+	addiu	$t1, $t1, 1
+	j	find_width
+
+end_of_bar:
+	divu	$t6, $t1, 2
+	move	$t7, $t6  # t7 holds width of thinest bar in pixels
+	mulu	$t6, $t7, 5 # first width which exceeds limit of 5
+	
+prepare:
+	li	$t1, 0
+	lb	$t2, ($t9) # current color
+	
+check_width:
+	lb	$t0, ($t9)
+	bne	$t0, $t2, bar_finished
+	addiu	$t1, $t1, 1
+	addiu	$t9, $t9, 3
+	beq	$t1, $t6, exit
+	j	check_width
+	
+bar_finished:
+	divu	$t1, $t1, $t7
+	sb	$t1, ($s6)
+	addiu	$s6, $s6, 1
+	lb	$t1, ($s6)
+	li	$t3, '\0'
+	beq	$t1, $t3, exit #########
+	lb	$t2, ($t9) # color changed
+	j	prepare
+	
+		
 end_of_row:
 	mul	$t8, $t8, 3
 	beq	$t9, $t8, black_not_found
@@ -257,5 +312,8 @@ format_error:
 	j	exit
 	
 exit:
+	li	$v0, 4
+	la	$a0, code_buffer
+	syscall
 	li	$v0, 10
 	syscall
