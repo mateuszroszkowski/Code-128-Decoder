@@ -117,7 +117,7 @@ code_105:		.asciiz "211232"
 code_106:		.asciiz "2331112"
 
 array_of_codes:
-			.word	code_1, code_2, code_3, code_4, code_5, code_6, code_7, code_8, code_9, code_10,
+			.word	code_0, code_1, code_2, code_3, code_4, code_5, code_6, code_7, code_8, code_9, code_10,
 				code_11, code_12, code_13, code_14, code_15, code_16, code_17, code_18, code_19, code_20,
 				code_21, code_22, code_23, code_24, code_25, code_26, code_27, code_28, code_29, code_30
 				code_31, code_32, code_33, code_34, code_35, code_36, code_37, code_38, code_39, code_40,
@@ -137,11 +137,14 @@ width:			.word	600
 height:			.word	50
 code_buffer:		.space	7
 special_code_buffer:	.space	8
+output:			.space 	100
 
 dsc_error_msg: 		.asciiz "File descriptor error!"
 bitmap_error_msg: 	.asciiz	"Loaded file is not a bitmap!"
 format_error_msg:	.asciiz "Loaded bmp resolution is not 24-bit!"
 size_error_msg:		.asciiz	"Wrong file size! Allowed size is 600x50."
+checksum_error_msg:	.asciiz "Wrong checksum value!"
+char_code_error_msg:	.asciiz "Character code not found!"
 
 no_black_pixel:		.asciiz "There is no barcode in the bitmap!"
 placeholder:		.asciiz "Black pixel found!"
@@ -218,9 +221,14 @@ close_file:
 	syscall
 	
 set_up_top_left:
+	xor	$s1, $s1, $s1
+	xor	$s2, $s2, $s2
+	xor	$s3, $s3, $s3
 	move	$t9, $s4
 	addiu	$t9, $t9, 88200 # top left pixel
-	li	$t8, 0 # chcecking if we passed full row	
+	li	$t8, 0 # chcecking if we passed full row
+	la	$s7, output
+	xor	$s4, $s4, $s4
 	
 look_for_black:
 	lb	$t0, ($t9)
@@ -264,14 +272,141 @@ check_width:
 	
 bar_finished:
 	divu	$t1, $t1, $t7
+	addiu	$t1, $t1, 48
 	sb	$t1, ($s6)
 	addiu	$s6, $s6, 1
 	lb	$t1, ($s6)
 	li	$t3, '\0'
-	beq	$t1, $t3, exit #########
+	beq	$t1, $t3, finished_reading
 	lb	$t2, ($t9) # color changed
 	j	prepare
 	
+finished_reading:
+	li	$t1, 0
+	la	$a1, array_of_codes
+	
+prepare_for_str_cmp:
+	lw	$a2, ($a1)
+	la	$a3, ($a2)
+	la	$s6, code_buffer
+	li	$t3, '\0'
+
+str_cmp:
+	lb	$t5, ($a3)
+	lb	$t4, ($s6)
+	beq	$t5, $t3, equal
+	bne	$t5, $t4, not_equal
+	
+inc:
+	addiu	$s6, $s6, 1
+	addiu	$a3, $a3, 1
+	j	str_cmp
+	
+equal:
+	beq	$t1, 103, start
+	addiu	$s1, $s1, 1	# $s1 holds current number of charactes read - START SYMBOL
+	move	$s2, $t1	# $s2 holds last character value
+	mulu	$s3, $s1, $s2	# component of a checksum
+	addu	$s4, $s4, $s3	# checksum	
+	addiu	$t1, $t1, 32
+	sb	$t1, ($s7)
+	addiu	$s7, $s7, 1
+	la	$s6, code_buffer
+	j	prepare
+	
+start:
+	addu	$s4, $s4, $t1
+	la	$s6, code_buffer
+	j	prepare
+
+not_equal:
+	addiu	$t1, $t1, 1
+	beq	$t1, 105, possible_stop
+	addiu	$a1, $a1, 4
+	la	$s6, code_buffer
+	lw	$a2, ($a1)
+	la	$a3, ($a2)
+	j	str_cmp	
+
+possible_stop:
+	la	$s6, code_buffer
+	la	$s5, special_code_buffer
+	li	$t3, '\0'
+	
+copy:
+	lb	$t1, ($s6)
+	beq	$t1, $t3, get_one_bar
+	sb	$t1, ($s5)
+	addiu	$s5, $s5, 1
+	addiu	$s6, $s6, 1
+	j	copy
+
+get_one_bar:
+	li	$t1, 0
+	lb	$t2, ($t9) # current color
+	
+one_bar_width:
+	lb	$t0, ($t9)
+	bne	$t0, $t2, finalize
+	addiu	$t1, $t1, 1
+	addiu	$t9, $t9, 3
+	beq	$t1, $t6, exit
+	j	one_bar_width
+
+finalize:
+	divu	$t1, $t1, $t7
+	addiu	$t1, $t1, 48
+	sb	$t1, special_code_buffer+6
+	
+check_if_stop:
+	la	$a1, array_of_codes+424
+	la	$s5, special_code_buffer
+	lw	$a2, ($a1)
+	la	$a3, ($a2)
+	li	$t3, '\0'
+	
+cmp:
+	lb	$t5, ($s5)
+	beq	$t5, $t3, match
+	lb	$t4, ($a3)
+	bne	$t4, $t5, wrong_code
+	addiu	$a3, $a3, 1
+	addiu	$s5, $s5, 1
+	j	cmp
+	
+match:
+	subu	$s4, $s4, $s3
+	li	$t4, 103
+	divu	$s4, $t4
+	xor	$t4, $t4, $t4
+	mfhi	$t4
+	bne	$t4, $s3, wrong_checksum
+	
+finish:
+	li	$t3, '\0'
+	subiu	$t7, $t7, 1
+	sb	$t3, ($t7)
+
+exit_success:
+	li	$v0, 4
+	la	$a0, output
+	syscall
+	li	$v0, 10
+	syscall
+
+wrong_checksum:
+	li	$v0, 4
+	la	$a0, checksum_error_msg
+	syscall
+	j	exit
+
+wrong_code:
+	li	$v0, 4
+	la	$a0, char_code_error_msg
+	syscall
+	j	exit
+	
+
 		
 end_of_row:
 	mul	$t8, $t8, 3
