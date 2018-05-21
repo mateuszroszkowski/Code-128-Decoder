@@ -145,17 +145,20 @@ format_error_msg:	.asciiz "Loaded bmp resolution is not 24-bit!"
 size_error_msg:		.asciiz	"Wrong file size! Allowed size is 600x50."
 checksum_error_msg:	.asciiz "Wrong checksum value!"
 char_code_error_msg:	.asciiz "Character code not found!"
+no_barcode_error_msg:	.asciiz "There is no barcode in the pricture!"
 
 no_black_pixel:		.asciiz "There is no barcode in the bitmap!"
 placeholder:		.asciiz "Black pixel found!"
 
-fpath:			.asciiz	"/home/mateusz/develop/projects/ecoar/mips/Code-128-Decoder/test.bmp"
+fpath:			.asciiz	"/home/mateusz/develop/projects/ecoar/mips/Code-128-Decoder/blank.bmp"
 
 .text
 open_file:
 	li	$t1, '\0'
 	sb	$t1, code_buffer+6
 	sb	$t1, special_code_buffer+7
+	la	$t1, code_buffer
+	la	$t2, special_code_buffer
 	li	$t1, '*'
 	sb	$t1, code_buffer
 	sb	$t1, special_code_buffer
@@ -170,7 +173,7 @@ open_file:
 	sb	$t1, code_buffer+5
 	sb	$t1, special_code_buffer+5
 	sb	$t1, special_code_buffer+6
-		
+	
 	li	$v0, 13
 	la	$a0, fpath
 	li	$a1, 0
@@ -225,7 +228,8 @@ set_up_top_left:
 	xor	$s2, $s2, $s2
 	xor	$s3, $s3, $s3
 	move	$t9, $s4
-	addiu	$t9, $t9, 88200 # top left pixel
+	li	$s4, 0
+	addiu	$t9, $t9, 88203 # top left pixel
 	li	$t8, 0 # chcecking if we passed full row
 	la	$s7, output
 	xor	$s4, $s4, $s4
@@ -239,6 +243,12 @@ iterate:
 	addiu	$t8, $t8, 1
 	beq	$t8, 599, end_of_row
 	j	look_for_black
+	
+no_barcode:
+	li	$v0, 4
+	la	$a0, no_barcode_error_msg
+	syscall
+	j	exit
 
 black_found:
 	li	$t1, 1
@@ -380,12 +390,12 @@ match:
 	divu	$s4, $t4
 	xor	$t4, $t4, $t4
 	mfhi	$t4
-	bne	$t4, $s3, wrong_checksum
+	bne	$t4, $s2, wrong_checksum
 	
 finish:
 	li	$t3, '\0'
-	subiu	$t7, $t7, 1
-	sb	$t3, ($t7)
+	subiu	$s7, $s7, 1
+	sb	$t3, ($s7)
 
 exit_success:
 	li	$v0, 4
@@ -409,8 +419,8 @@ wrong_code:
 
 		
 end_of_row:
-	mul	$t8, $t8, 3
-	beq	$t9, $t8, black_not_found
+	addiu	$s4, $s4, 1
+	beq	$s4, 49, no_barcode
 	li	$t8, 0
 	subiu	$t9, $t9, 3597 # from rightmost pixel in n-th row to leftmost pixel in (n-1)th row
 	j	look_for_black
@@ -447,8 +457,5 @@ format_error:
 	j	exit
 	
 exit:
-	li	$v0, 4
-	la	$a0, code_buffer
-	syscall
 	li	$v0, 10
 	syscall
