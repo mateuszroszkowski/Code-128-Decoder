@@ -9,8 +9,6 @@ buffer:			.space	2
 header:			.space	54
 width:			.word	600
 height:			.word	50
-code_buffer:		.space	7
-special_code_buffer:	.space	8
 output:			.space 	100
 
 dsc_error_msg: 		.asciiz "File descriptor error!"
@@ -19,34 +17,15 @@ format_error_msg:	.asciiz "Loaded bmp resolution is not 24-bit!"
 size_error_msg:		.asciiz	"Wrong file size! Allowed size is 600x50."
 checksum_error_msg:	.asciiz "Wrong checksum value!"
 char_code_error_msg:	.asciiz "Character code not found!"
-no_barcode_error_msg:	.asciiz "There is no barcode in the pricture!"
+no_barcode_error_msg:	.asciiz "There is no barcode in the picture!"
 
 no_black_pixel:		.asciiz "There is no barcode in the bitmap!"
-placeholder:		.asciiz "Black pixel found!"
+decoded_text:		.asciiz "Text decoded from barcode: "
 
 fpath:			.asciiz	"/home/mateusz/develop/projects/ecoar/mips/Code-128-Decoder/ecoar2018_fat.bmp"
 
 .text
 open_file:
-	li	$t1, '\0'
-	sb	$t1, code_buffer+6
-	sb	$t1, special_code_buffer+7
-	la	$t1, code_buffer
-	la	$t2, special_code_buffer
-	li	$t3, '*'
-	sb	$t1, code_buffer
-	sb	$t1, special_code_buffer
-	sb	$t1, code_buffer+1
-	sb	$t1, special_code_buffer+1
-	sb	$t1, code_buffer+2
-	sb	$t1, special_code_buffer+2
-	sb	$t1, code_buffer+3
-	sb	$t1, special_code_buffer+3
-	sb	$t1, code_buffer+4
-	sb	$t1, special_code_buffer+4
-	sb	$t1, code_buffer+5
-	sb	$t1, special_code_buffer+5
-	sb	$t1, special_code_buffer+6
 
 	li	$v0, 13
 	la	$a0, fpath
@@ -98,9 +77,6 @@ close_file:
 	syscall
 	
 set_up:
-	xor	$s1, $s1, $s1
-	xor	$s2, $s2, $s2
-	xor	$s3, $s3, $s3
 	move	$t9, $s4
 	li	$s4, 0
 	li	$t7, 30 #line_number
@@ -108,8 +84,11 @@ set_up:
 	mul	$t7, $t7, $t6
 	addu	$t9, $t9, $t7
 	li	$t8, 0 # chcecking if we passed full row
-	la	$s7, output
+	la	$a3, output
 	xor	$s4, $s4, $s4
+	xor	$s7, $s7, $s7
+	xor	$s6, $s6, $s6
+	xor	$s5, $s5, $s5
 	
 look_for_black:
 	lb	$t0, ($t9)
@@ -120,20 +99,11 @@ iterate:
 	addiu	$t8, $t8, 1
 	beq	$t8, 599, no_barcode
 	j	look_for_black
-	
-no_barcode:
-	li	$v0, 4
-	la	$a0, no_barcode_error_msg
-	syscall
-	j	exit
 
 black_found:
-	xor	$s4, $s4, $s4
 	li	$t1, 1
 	la	$t7, ($t9)
-	la	$s6, code_buffer
-	la	$s5, special_code_buffer
-
+	
 find_width:
 	addiu	$t7, $t7, 3
 	lb	$t0, ($t7)
@@ -143,145 +113,146 @@ find_width:
 
 end_of_bar:
 	divu	$t6, $t1, 2
-	move	$t7, $t6  # t7 holds width of thinest bar in pixels
-	mulu	$t6, $t7, 5 # first width which exceeds limit of 5
+	move	$t7, $t6 # width of the thinest bar in pixels
+	mulu	$t6, $t7, 5 # firt width which exceeds limit of 5
+	
+pre_prepare:
+	xor	$s0, $s0, $s0 # pattern
+	xor	$s1, $s1, $s1 # number of shifts
+	li	$s2, 1
+	li	$s3, 0
 	
 prepare:
 	li	$t1, 0
 	lb	$t2, ($t9) # current color
-	
-check_width:
+
+get_bar:
 	lb	$t0, ($t9)
-	bne	$t0, $t2, bar_finished
 	addiu	$t1, $t1, 1
 	addiu	$t9, $t9, 3
-	beq	$t1, $t6, exit
-	j	check_width
+	move	$t3, $t2 # hold color
+	beq	$t1, $t7, bar_obtained
+	j	get_bar
 	
-bar_finished:
-	divu	$t1, $t1, $t7
-	addiu	$t1, $t1, 48
-	sb	$t1, ($s6)
-	addiu	$s6, $s6, 1
-	lb	$t1, ($s6)
-	li	$t3, '\0'
-	beq	$t1, $t3, finished_reading
-	lb	$t2, ($t9) # color changed
+bar_obtained:
+	beq	$t2, 0xffffff, white_bar
+	beq	$t2, 0x000000, black_bar
+	
+white_bar:
+	or	$s0, $s0, $s3
+	addiu	$s1, $s1, 1
+	beq	$s1, 11, pattern_finished
+	sll	$s0, $s0, 1
 	j	prepare
 	
-finished_reading:
+black_bar:
+	or	$s0, $s0, $s2
+	addiu	$s1, $s1, 1
+	beq	$s1, 11, pattern_finished
+	sll	$s0, $s0, 1
+	j	prepare
+	
+pattern_finished:
 	li	$t1, 0
-	la	$a1, array_of_codes
+	la	$t5, array_of_codes
 	
-prepare_for_str_cmp:
-	lw	$a2, ($a1)
-	la	$a3, ($a2)
-	la	$s6, code_buffer
-	li	$t3, '\0'
+	
+compare:
+	lw	$t4, ($t5)
+	beq	$s0, $t4, equal
+	bne	$s0, $t4, not_equal
 
-str_cmp:
-	lb	$t5, ($a3)
-	lb	$t4, ($s6)
-	beq	$t5, $t3, equal
-	bne	$t5, $t4, not_equal
-	
-inc:
-	addiu	$s6, $s6, 1
-	addiu	$a3, $a3, 1
-	j	str_cmp
-	
 equal:
 	beq	$t1, 103, start
-	addiu	$s1, $s1, 1	# $s1 holds current number of charactes read - START SYMBOL
-	move	$s2, $t1	# $s2 holds last character value
-	mulu	$s3, $s1, $s2	# component of a checksum
-	addu	$s4, $s4, $s3	# checksum	
+	addiu	$s4, $s4, 1
+	move	$s5, $t1
+	mulu	$s6, $s4, $s5
+	addu	$s7, $s7, $s6
 	addiu	$t1, $t1, 32
-	sb	$t1, ($s7)
-	addiu	$s7, $s7, 1
-	la	$s6, code_buffer
-	j	prepare
+	sb	$t1, ($a3)
+	addiu	$a3, $a3, 1
+	xor	$s0, $s0, $s0
+	xor	$s1, $s1, $s1
+	j	pre_prepare
 	
 start:
-	addu	$s4, $s4, $t1
-	la	$s6, code_buffer
-	j	prepare
+	addu	$s7, $s7, $t1
+	j	pre_prepare
+	
 
 not_equal:
 	addiu	$t1, $t1, 1
 	beq	$t1, 105, possible_stop
-	addiu	$a1, $a1, 4
-	la	$s6, code_buffer
-	lw	$a2, ($a1)
-	la	$a3, ($a2)
-	j	str_cmp	
-
+	addiu	$t5, $t5, 4
+	j	compare
+	
 possible_stop:
-	la	$s6, code_buffer
-	la	$s5, special_code_buffer
-	li	$t3, '\0'
+	xor	$s1, $s1, $s1
 	
-copy:
-	lb	$t1, ($s6)
-	beq	$t1, $t3, get_one_bar
-	sb	$t1, ($s5)
-	addiu	$s5, $s5, 1
-	addiu	$s6, $s6, 1
-	j	copy
-
-get_one_bar:
+get_bars:
 	li	$t1, 0
-	lb	$t2, ($t9) # current color
+	lb	$t2, ($t9)
 	
-one_bar_width:
+get_additional_bars:
 	lb	$t0, ($t9)
-	bne	$t0, $t2, finalize
 	addiu	$t1, $t1, 1
 	addiu	$t9, $t9, 3
-	beq	$t1, $t6, exit
-	j	one_bar_width
-
+	move	$t3, $t2 # hold color
+	beq	$t1, $t7, additional_obtained
+	j	get_additional_bars
+	
+additional_obtained:
+	beq	$t2, 0xffffff, white_bar_add
+	beq	$t2, 0x000000, black_bar_add
+	
+white_bar_add:
+	sll	$s0, $s0, 1
+	or	$s0, $s0, $s3
+	addiu	$s1, $s1, 1
+	beq	$s1, 2, finalize
+	j	get_bars
+	
+black_bar_add:
+	sll	$s0, $s0, 1
+	or	$s0, $s0, $s2
+	addiu	$s1, $s1, 1
+	beq	$s1, 2, finalize
+	j	get_bars
+	
 finalize:
-	divu	$t1, $t1, $t7
-	addiu	$t1, $t1, 48
-	sb	$t1, special_code_buffer+6
-	
-check_if_stop:
 	la	$a1, array_of_codes+424
-	la	$s5, special_code_buffer
 	lw	$a2, ($a1)
-	la	$a3, ($a2)
-	li	$t3, '\0'
-	
-cmp:
-	lb	$t5, ($s5)
-	beq	$t5, $t3, match
-	lb	$t4, ($a3)
-	bne	$t4, $t5, wrong_code
-	addiu	$a3, $a3, 1
-	addiu	$s5, $s5, 1
-	j	cmp
-	
+	bne	$s0, $a2, wrong_code
+	beq	$s0, $a2, match
+
 match:
-	subu	$s4, $s4, $s3
+	subu	$s7, $s7, $s6
 	li	$t4, 103
-	divu	$s4, $t4
+	divu	$s7, $t4
 	xor	$t4, $t4, $t4
 	mfhi	$t4
-	bne	$t4, $s2, wrong_checksum
+	bne	$t4, $s5 wrong_checksum
 	
 finish:
 	li	$t3, '\0'
-	subiu	$s7, $s7, 1
-	sb	$t3, ($s7)
-
+	subiu	$a3, $a3, 1
+	sb	$t3, ($a3)
+	
 exit_success:
 	li	$v0, 4
+	la	$a0, decoded_text
+	syscall
 	la	$a0, output
 	syscall
-	li	$v0, 10
+	j	exit
+	
+	
+no_barcode:
+	li	$v0, 4
+	la	$a0, no_barcode_error_msg
 	syscall
-
+	j	exit
+	
 wrong_checksum:
 	li	$v0, 4
 	la	$a0, checksum_error_msg
