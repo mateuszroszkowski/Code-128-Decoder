@@ -18,12 +18,11 @@ size_error_msg:		.asciiz	"Wrong file size! Allowed size is 600x50."
 checksum_error_msg:	.asciiz "Wrong checksum value!"
 char_code_error_msg:	.asciiz "Character code not found!"
 no_barcode_error_msg:	.asciiz "There is no barcode in the picture!"
-wrong_set_error_msg:	.asciiz "Start character from set B or C detected!"
 
 no_black_pixel:		.asciiz "There is no barcode in the bitmap!"
 decoded_text:		.asciiz "Text decoded from barcode: "
 
-fpath:			.asciiz	"/home/mateusz/develop/projects/ecoar/mips/Code-128-Decoder/output.bmp"
+fpath:			.asciiz	"/home/mateusz/develop/projects/ecoar/mips/Code-128-Decoder/ecoar2018_fat.bmp"
 
 .text
 open_file:
@@ -104,14 +103,12 @@ iterate:
 black_found:
 	li	$t1, 1
 	la	$t7, ($t9)
-	li	$t8, 50
 	
 find_width:
 	addiu	$t7, $t7, 3
 	lb	$t0, ($t7)
 	bnez	$t0, end_of_bar
 	addiu	$t1, $t1, 1
-	beq	$t1, $t8, no_barcode
 	j	find_width
 
 end_of_bar:
@@ -167,8 +164,6 @@ compare:
 
 equal:
 	beq	$t1, 103, start
-	beq	$t1, 104, wrong_set
-	beq	$t1, 105, wrong_set
 	addiu	$s4, $s4, 1
 	move	$s5, $t1
 	mulu	$s6, $s4, $s5
@@ -187,7 +182,7 @@ start:
 
 not_equal:
 	addiu	$t1, $t1, 1
-	beq	$t1, 106, possible_stop
+	beq	$t1, 105, possible_stop
 	addiu	$t5, $t5, 4
 	j	compare
 	
@@ -272,7 +267,7 @@ wrong_code:
 	
 black_not_found:
 	li	$v0, 4
-	la	$a0, no_barcode_error_msg
+	la	$a0, no_black_pixel
 	syscall
 	j	exit
 	
@@ -299,11 +294,6 @@ format_error:
 	li	$v0, 4
 	la	$a0, format_error_msg
 	syscall
-	j	exit
-	
-wrong_set:
-	li	$v0, 4
-	la	$a0, wrong_set_error_msg
 	j	exit
 	
 exit:
